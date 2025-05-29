@@ -44,9 +44,6 @@ class ReflexAgent(Agent):
         """
         # Collect legal moves and successor states
         legalMoves = gameState.getLegalActions()
-        # Excluir STOP si hay otras opciones
-        if Directions.STOP in legalMoves and len(legalMoves) > 1:
-            legalMoves.remove(Directions.STOP)
 
         # Choose one of the best actions
         scores = [self.evaluationFunction(gameState, action) for action in legalMoves]
@@ -119,45 +116,30 @@ class MinimaxAgent(MultiAgentSearchAgent):
     """
 
     def getAction(self, gameState: GameState):
-        """Returns the minimax action from the current gameState using self.depth"""
-        def minimax(agentIndex, depth, state):
-            if state.isWin() or state.isLose() or depth == self.depth:
-                return self.evaluationFunction(state)
-            if agentIndex == 0:
-                return maxValue(agentIndex, depth, state)
-            else:
-                return minValue(agentIndex, depth, state)
-        def maxValue(agentIndex, depth, state):
-            v = float('-inf')
-            # Excluir STOP si es Pacman
-            actions = state.getLegalActions(agentIndex)
-            if agentIndex == 0 and Directions.STOP in actions and len(actions) > 1:
-                actions.remove(Directions.STOP)
-            for action in actions:
-                succ = state.generateSuccessor(agentIndex, action)
-                v = max(v, minimax(1, depth, succ))
-            return v
-        def minValue(agentIndex, depth, state):
-            v = float('inf')
-            nextAgent = agentIndex + 1
-            nextDepth = depth
-            if nextAgent == state.getNumAgents():
-                nextAgent = 0; nextDepth += 1
-            for action in state.getLegalActions(agentIndex):
-                succ = state.generateSuccessor(agentIndex, action)
-                v = min(v, minimax(nextAgent, nextDepth, succ))
-            return v
-        # Excluir STOP de las acciones de Pacman si hay otras opciones
-        legalActions = gameState.getLegalActions(0)
-        if Directions.STOP in legalActions and len(legalActions) > 1:
-            legalActions.remove(Directions.STOP)
-        bestScore = float('-inf'); bestAction = None
-        for action in legalActions:
-            succ = gameState.generateSuccessor(0, action)
-            score = minimax(1, 0, succ)
-            if score > bestScore:
-                bestScore = score; bestAction = action
-        return bestAction
+        """
+        Returns the minimax action from the current gameState using self.depth
+        and self.evaluationFunction.
+
+        Here are some method calls that might be useful when implementing minimax.
+
+        gameState.getLegalActions(agentIndex):
+        Returns a list of legal actions for an agent
+        agentIndex=0 means Pacman, ghosts are >= 1
+
+        gameState.generateSuccessor(agentIndex, action):
+        Returns the successor game state after an agent takes an action
+
+        gameState.getNumAgents():
+        Returns the total number of agents in the game
+
+        gameState.isWin():
+        Returns whether or not the game state is a winning state
+
+        gameState.isLose():
+        Returns whether or not the game state is a losing state
+        """
+        "*** YOUR CODE HERE ***"
+        util.raiseNotDefined()
 
 class AlphaBetaAgent(MultiAgentSearchAgent):
     """
@@ -165,48 +147,11 @@ class AlphaBetaAgent(MultiAgentSearchAgent):
     """
 
     def getAction(self, gameState: GameState):
-        """Returns the minimax action using self.depth and self.evaluationFunction"""
-        def alphabeta(agentIndex, depth, state, alpha, beta):
-            if state.isWin() or state.isLose() or depth == self.depth:
-                return self.evaluationFunction(state)
-            if agentIndex == 0:
-                return maxValue(agentIndex, depth, state, alpha, beta)
-            else:
-                return minValue(agentIndex, depth, state, alpha, beta)
-        def maxValue(agentIndex, depth, state, alpha, beta):
-            v = float('-inf')
-            actions = state.getLegalActions(agentIndex)
-            if agentIndex == 0 and Directions.STOP in actions and len(actions) > 1:
-                actions.remove(Directions.STOP)
-            for action in actions:
-                succ = state.generateSuccessor(agentIndex, action)
-                v = max(v, alphabeta(1, depth, succ, alpha, beta))
-                if v > beta: return v
-                alpha = max(alpha, v)
-            return v
-        def minValue(agentIndex, depth, state, alpha, beta):
-            v = float('inf')
-            nextAgent = agentIndex + 1; nextDepth = depth
-            if nextAgent == state.getNumAgents(): nextAgent = 0; nextDepth += 1
-            for action in state.getLegalActions(agentIndex):
-                succ = state.generateSuccessor(agentIndex, action)
-                v = min(v, alphabeta(nextAgent, nextDepth, succ, alpha, beta))
-                if v < alpha: return v
-                beta = min(beta, v)
-            return v
-        # Excluir STOP de las acciones de Pacman si hay otras opciones
-        legalActions = gameState.getLegalActions(0)
-        if Directions.STOP in legalActions and len(legalActions) > 1:
-            legalActions.remove(Directions.STOP)
-        bestScore = float('-inf'); bestAction = None
-        alpha = float('-inf'); beta = float('inf')
-        for action in legalActions:
-            succ = gameState.generateSuccessor(0, action)
-            score = alphabeta(1, 0, succ, alpha, beta)
-            if score > bestScore:
-                bestScore = score; bestAction = action
-            alpha = max(alpha, score)
-        return bestAction
+        """
+        Returns the minimax action using self.depth and self.evaluationFunction
+        """
+        "*** YOUR CODE HERE ***"
+        util.raiseNotDefined()
 
 class ExpectimaxAgent(MultiAgentSearchAgent):
     """
@@ -246,23 +191,22 @@ class NeuralAgent(Agent):
     Un agente de Pacman que utiliza una red neuronal para tomar decisiones
     basado en la evaluación del estado del juego.
     """
-    def __init__(self, model_path="models/pacman_model.pth", ghost_weight=1.0, food_weight=2.0):
+    def __init__(self, model_path="models/pacman_model.pth"):
         super().__init__()
         self.model = None
         self.input_size = None
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.load_model(model_path)
-        # Weights for heuristic factors
-        self.ghost_weight = float(ghost_weight)
-        self.food_weight = float(food_weight)
         
-        # Mapeo de índices a acciones (sin Stop)
+        # Mapeo de índices a acciones
         self.idx_to_action = {
-            0: Directions.NORTH,
-            1: Directions.SOUTH,
-            2: Directions.EAST,
-            3: Directions.WEST
+            0: Directions.STOP,
+            1: Directions.NORTH,
+            2: Directions.SOUTH,
+            3: Directions.EAST,
+            4: Directions.WEST
         }
+        
         # Para evaluar alternativas
         self.action_to_idx = {v: k for k, v in self.idx_to_action.items()}
         
@@ -283,7 +227,7 @@ class NeuralAgent(Agent):
             self.input_size = checkpoint['input_size']
             
             # Crear y cargar el modelo
-            self.model = PacmanNet(self.input_size, 128, 4).to(self.device)
+            self.model = PacmanNet(self.input_size, 128, 5).to(self.device)
             self.model.load_state_dict(checkpoint['model_state_dict'])
             self.model.eval()  # Modo evaluación
             
