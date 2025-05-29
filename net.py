@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from collections import Counter
+import argparse
 
 import torch
 import torch.nn as nn
@@ -18,19 +19,18 @@ random.seed(42)
 # Constantes
 INPUT_SIZE = None  # Se determinará en tiempo de ejecución basado en el tamaño del mapa
 HIDDEN_SIZE = 128
-NUM_ACTIONS = 5  # Stop, North, South, East, West
+NUM_ACTIONS = 4  # North, South, East, West (sin Stop)
 BATCH_SIZE = 64
 LEARNING_RATE = 0.001
 NUM_EPOCHS = 100
 MODELS_DIR = "models"
 
-# Mapeo de acciones a índices
+# Mapeo de acciones a índices (sin Stop)
 ACTION_TO_IDX = {
-    'Stop': 0,
-    'North': 1,
-    'South': 2, 
-    'East': 3,
-    'West': 4
+    'North': 0,
+    'South': 1,
+    'East': 2,
+    'West': 3
 }
 
 # Mapeo de índices a acciones
@@ -46,50 +46,41 @@ class PacmanDataset(Dataset):
     
     def __getitem__(self, idx):
         map_tensor = torch.FloatTensor(self.maps[idx])
-        if map_tensor.dim() == 2:
-            map_tensor = map_tensor.unsqueeze(0)
-        action_tensor = torch.tensor(self.actions[idx], dtype=torch.long)
-        return map_tensor, action_tensor
+        action_tensor = torch.LongTensor([self.actions[idx]])
+        return map_tensor, action_tensor.squeeze()
 
 class PacmanNet(nn.Module):
-    """Red neuronal convolucional para decidir acciones en Pac-Man."""
-
     def __init__(self, input_size, hidden_size, output_size):
         super(PacmanNet, self).__init__()
-
-        channels = 1  # usamos una única matriz de entrada
-        height, width = input_size
-
-        # Capas convolucionales
-        self.conv1 = nn.Conv2d(channels, 32, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
-        self.bn = nn.BatchNorm2d(64)
-        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, padding=1)
-        self.pool = nn.AdaptiveAvgPool2d((1, 1))
-
-        # Determinar tamaño de salida de las convs de forma dinámica
-        with torch.no_grad():
-            dummy = torch.zeros(1, channels, height, width)
-            conv_out = self._forward_conv(dummy).view(1, -1).size(1)
-
-        # Capas fully connected
+        # input_size: (H, W)
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=4, stride=2, padding=1)
+        self.bn1 = nn.BatchNorm2d(16)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=4, stride=2, padding=1)
+        self.bn2 = nn.BatchNorm2d(32)
+        self.conv3 = nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1)
+        self.bn3 = nn.BatchNorm2d(32)
+        # compute conv output size
+        h, w = input_size
+        def conv_dim(size, kernel, stride, pad): return (size + 2*pad - (kernel - 1) - 1) // stride + 1
+        h1, w1 = conv_dim(h,4,2,1), conv_dim(w,4,2,1)
+        h2, w2 = conv_dim(h1,4,2,1), conv_dim(w1,4,2,1)
+        h3, w3 = conv_dim(h2,3,1,1), conv_dim(w2,3,1,1)
+        conv_out = 32 * h3 * w3
+        # fully connected head
         self.fc1 = nn.Linear(conv_out, hidden_size)
-        self.fc_out = nn.Linear(hidden_size, output_size)
-
-    def _forward_conv(self, x):
-        x = torch.relu(self.conv1(x))
-        x = torch.relu(self.conv2(x))
-        x = self.bn(x)
-        x = torch.relu(self.conv3(x))
-        x = self.pool(x)
-        return x
-
+        self.fc2 = nn.Linear(hidden_size, output_size)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(0.3)
+    
     def forward(self, x):
-        # x llega con forma (batch, C=1, H, W)
-        x = self._forward_conv(x)
+        # x: (batch, H, W)
+        x = x.unsqueeze(1)  # add channel dim
+        x = self.relu(self.bn1(self.conv1(x)))
+        x = self.relu(self.bn2(self.conv2(x)))
+        x = self.relu(self.bn3(self.conv3(x)))
         x = x.view(x.size(0), -1)
-        x = torch.relu(self.fc1(x))
-        x = self.fc_out(x)
+        x = self.dropout(self.relu(self.fc1(x)))
+        x = self.fc2(x)
         return x
 
 def load_and_merge_data(data_dir="pacman_data"):
@@ -130,11 +121,9 @@ def preprocess_maps(maps):
     
     # Convertir a numpy array
     processed_maps = np.array(maps).astype(np.float32)
-
+    
     # Normalizar los valores: dividir por 5 (el valor máximo) para obtener valores entre 0 y 1
     processed_maps = processed_maps / 5.0
-    # Añadir dimensión de canal
-    processed_maps = processed_maps[:, np.newaxis, :, :]
     
     print(f"Forma de los datos de entrada: {processed_maps.shape}")
     print(f"Tamaño del mapa: {height}x{width}")
@@ -263,5 +252,47 @@ def main():
     # Guardar modelo
     save_model(trained_model, input_size)
     print(f"Tiempo total de ejecución: {time.time() - start_time:.2f} segundos")
-if __name__ == "__main__":
-    main()
+# Agregar manejo de argumentos y punto de entrada
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Entrenar PacmanNet')
+    parser.add_argument('--data-dir', type=str, default='pacman_data', help='Directorio de CSV de partidas')
+    parser.add_argument('--models-dir', type=str, default=MODELS_DIR, help='Directorio para guardar modelos')
+    parser.add_argument('--epochs', type=int, default=NUM_EPOCHS, help='Número de épocas de entrenamiento')
+    parser.add_argument('--batch-size', type=int, default=BATCH_SIZE, help='Tamaño de batch')
+    parser.add_argument('--lr', type=float, default=LEARNING_RATE, help='Learning rate para el optimizador')
+    args = parser.parse_args()
+
+    # Cargar y procesar datos
+    maps, actions = load_and_merge_data(data_dir=args.data_dir)
+    processed_maps, input_size = preprocess_maps(maps)
+    X_train, X_test, y_train, y_test = train_test_split(
+        processed_maps, actions, test_size=0.2, random_state=42
+    )
+
+    # Crear datasets y loaders
+    train_dataset = PacmanDataset(X_train, y_train)
+    test_dataset = PacmanDataset(X_test, y_test)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=args.batch_size)
+
+    # Preparar dispositivo y modelo
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = PacmanNet(input_size, HIDDEN_SIZE, NUM_ACTIONS).to(device)
+    # Ajustar hiperparámetros dinámicamente
+    LEARNING_RATE = args.lr
+    NUM_EPOCHS = args.epochs
+    BATCH_SIZE = args.batch_size
+
+    # Ejecutar entrenamiento
+    trained_model = train_model(model, train_loader, test_loader, device, num_epochs=args.epochs)
+
+    # Guardar modelo
+    os.makedirs(args.models_dir, exist_ok=True)
+    model_path = os.path.join(args.models_dir, 'pacman_model.pth')
+    # Guardar checkpoint con tamaño de entrada y pesos
+    checkpoint = {
+        'input_size': input_size,
+        'model_state_dict': trained_model.state_dict()
+    }
+    torch.save(checkpoint, model_path)
+    print(f'Modelo guardado en: {model_path} (checkpoint con input_size y model_state_dict)')
