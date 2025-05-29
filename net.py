@@ -3,6 +3,7 @@ import glob
 import json
 import csv
 import random
+import math
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -37,6 +38,123 @@ ACTION_TO_IDX = {
 
 # Mapeo de índices a acciones
 IDX_TO_ACTION = {v: k for k, v in ACTION_TO_IDX.items()}
+
+
+# ---------------------------------------------------------------------------
+# Implementación sencilla de una red neuronal feed-forward
+# ---------------------------------------------------------------------------
+
+class NeuralNetwork:
+    """Red neuronal artificial básica (perceptrón multicapa)."""
+
+    def __init__(self, layers_sizes):
+        """Inicializa la red con una lista de tamaños de capas."""
+        self.num_layers = len(layers_sizes)
+        self.layers_sizes = layers_sizes
+
+        # Pesos y biases para cada capa
+        self.weight_matrices = []
+        self.bias_vectors = []
+
+        random.seed(0)  # reproducibilidad
+        for i in range(self.num_layers - 1):
+            input_size = layers_sizes[i]
+            output_size = layers_sizes[i + 1]
+            weights = [[random.uniform(-0.5, 0.5) for _ in range(output_size)]
+                       for _ in range(input_size)]
+            biases = [random.uniform(-0.5, 0.5) for _ in range(output_size)]
+            self.weight_matrices.append(weights)
+            self.bias_vectors.append(biases)
+
+    # Funciones de activación ------------------------------------------------
+    def _sigmoid(self, x):
+        if x < -100:
+            return 0.0
+        return 1.0 / (1.0 + math.exp(-x))
+
+    def _sigmoid_deriv(self, sigmoid_output):
+        return sigmoid_output * (1.0 - sigmoid_output)
+
+    # Propagación hacia adelante --------------------------------------------
+    def forward(self, inputs):
+        if len(inputs) != self.layers_sizes[0]:
+            raise ValueError(
+                f"Dimensión de entrada {len(inputs)} no coincide con esperada ({self.layers_sizes[0]})")
+
+        activation = inputs
+        for i in range(self.num_layers - 1):
+            next_activation = []
+            weights = self.weight_matrices[i]
+            biases = self.bias_vectors[i]
+            for j in range(self.layers_sizes[i + 1]):
+                weighted_sum = 0.0
+                for k in range(self.layers_sizes[i]):
+                    weighted_sum += activation[k] * weights[k][j]
+                weighted_sum += biases[j]
+                next_activation.append(self._sigmoid(weighted_sum))
+            activation = next_activation
+        return activation
+
+    # Entrenamiento por backpropagation -------------------------------------
+    def train(self, X, Y, learning_rate=0.5, epochs=1000):
+        if len(X) != len(Y):
+            raise ValueError("El número de ejemplos de X y Y no coincide.")
+        n_samples = len(X)
+
+        for _ in range(epochs):
+            for idx in range(n_samples):
+                inputs = X[idx]
+                target = Y[idx]
+
+                activations = [inputs]
+                net_sums = []
+                for i in range(self.num_layers - 1):
+                    layer_input = activations[i]
+                    weights = self.weight_matrices[i]
+                    biases = self.bias_vectors[i]
+                    z_values = []
+                    next_activation = []
+                    for j in range(self.layers_sizes[i + 1]):
+                        z = 0.0
+                        for k in range(self.layers_sizes[i]):
+                            z += layer_input[k] * weights[k][j]
+                        z += biases[j]
+                        z_values.append(z)
+                        next_activation.append(self._sigmoid(z))
+                    net_sums.append(z_values)
+                    activations.append(next_activation)
+
+                # Cálculo del error en la salida
+                output_errors = [0.0] * self.layers_sizes[-1]
+                for j in range(self.layers_sizes[-1]):
+                    output_errors[j] = target[j] - activations[-1][j]
+
+                # Retropropagación
+                deltas = [None] * (self.num_layers - 1)
+                last_idx = self.num_layers - 2
+                deltas[last_idx] = [0.0] * self.layers_sizes[-1]
+                for j in range(self.layers_sizes[-1]):
+                    delta = output_errors[j] * self._sigmoid_deriv(activations[-1][j])
+                    deltas[last_idx][j] = delta
+
+                for i in range(self.num_layers - 3, -1, -1):
+                    deltas[i] = [0.0] * self.layers_sizes[i + 1]
+                    for j in range(self.layers_sizes[i + 1]):
+                        err = 0.0
+                        for k in range(self.layers_sizes[i + 2]):
+                            err += self.weight_matrices[i + 1][j][k] * deltas[i + 1][k]
+                        activation_val = self._sigmoid(net_sums[i][j])
+                        deltas[i][j] = err * self._sigmoid_deriv(activation_val)
+
+                # Actualizar pesos y biases
+                for i in range(self.num_layers - 1):
+                    layer_activation = activations[i]
+                    delta_layer = deltas[i]
+                    for k in range(self.layers_sizes[i]):
+                        for j in range(self.layers_sizes[i + 1]):
+                            self.weight_matrices[i][k][j] += learning_rate * layer_activation[k] * delta_layer[j]
+                    for j in range(self.layers_sizes[i + 1]):
+                        self.bias_vectors[i][j] += learning_rate * delta_layer[j]
 
 
 # Esto es obligatorio para poder usar dataloaders en pytorch
