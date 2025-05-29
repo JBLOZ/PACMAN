@@ -22,6 +22,30 @@ random.seed(42)  # For reproducibility
 from game import Agent
 from pacman import GameState
 
+
+def mazeDistance(point1, point2, gameState):
+    """Distancia mínima en el laberinto entre dos puntos usando BFS."""
+    from util import Queue
+    walls = gameState.getWalls()
+    if point1 == point2:
+        return 0
+    fringe = Queue()
+    visited = set()
+    fringe.push((point1, 0))
+    visited.add(point1)
+    while not fringe.isEmpty():
+        position, dist = fringe.pop()
+        x, y = position
+        neighbors = [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]
+        for nx, ny in neighbors:
+            if 0 <= nx < walls.width and 0 <= ny < walls.height and not walls[nx][ny]:
+                if (nx, ny) == point2:
+                    return dist + 1
+                if (nx, ny) not in visited:
+                    visited.add((nx, ny))
+                    fringe.push(((nx, ny), dist + 1))
+    return float('inf')
+
 class ReflexAgent(Agent):
     """
     A reflex agent chooses an action at each choice point by examining
@@ -168,15 +192,106 @@ class ExpectimaxAgent(MultiAgentSearchAgent):
         "*** YOUR CODE HERE ***"
         util.raiseNotDefined()
 
-def betterEvaluationFunction(currentGameState: GameState):
-    """
-    Your extreme ghost-hunting, pellet-nabbing, food-gobbling, unstoppable
-    evaluation function (question 5).
 
-    DESCRIPTION: <write something here so we know what you did>
-    """
-    "*** YOUR CODE HERE ***"
-    util.raiseNotDefined()
+class BetterAlphaBetaAgent(MultiAgentSearchAgent):
+    """Agente Alpha-Beta que usa betterEvaluationFunction."""
+
+    def __init__(self, depth='2'):
+        MultiAgentSearchAgent.__init__(self, evalFn='betterEvaluationFunction', depth=depth)
+
+    def getAction(self, gameState):
+        def alphabeta(state, depth, agentIndex, alpha, beta):
+            if depth == 0 or state.isWin() or state.isLose():
+                return betterEvaluationFunction(state)
+
+            num_agents = state.getNumAgents()
+
+            if agentIndex == 0:
+                value = -float('inf')
+                best_action = Directions.STOP
+                for action in state.getLegalActions(0):
+                    successor = state.generateSuccessor(0, action)
+                    new_val = alphabeta(successor, depth, 1, alpha, beta)
+                    if new_val > value:
+                        value = new_val
+                        best_action = action
+                    alpha = max(alpha, value)
+                    if value >= beta:
+                        break
+                return best_action if depth == self.depth else value
+            else:
+                value = float('inf')
+                next_agent = agentIndex + 1
+                next_depth = depth
+                if next_agent == num_agents:
+                    next_agent = 0
+                    next_depth = depth - 1
+                for action in state.getLegalActions(agentIndex):
+                    successor = state.generateSuccessor(agentIndex, action)
+                    new_val = alphabeta(successor, next_depth, next_agent, alpha, beta)
+                    if new_val < value:
+                        value = new_val
+                    beta = min(beta, value)
+                    if value <= alpha:
+                        break
+                return value
+
+        return alphabeta(gameState, self.depth, 0, -float('inf'), float('inf'))
+
+def betterEvaluationFunction(currentGameState: GameState):
+    """Evaluación heurística avanzada para Pac-Man."""
+
+    if currentGameState.isWin():
+        return float('inf')
+    if currentGameState.isLose():
+        return -float('inf')
+
+    pacman_pos = currentGameState.getPacmanPosition()
+    food_grid = currentGameState.getFood()
+    food_list = food_grid.asList()
+    ghost_states = currentGameState.getGhostStates()
+    capsules = currentGameState.getCapsules()
+
+    # Distancia a la comida más cercana
+    min_food_dist = float('inf')
+    for food in food_list:
+        dist = mazeDistance(pacman_pos, food, currentGameState)
+        if dist < min_food_dist:
+            min_food_dist = dist
+
+    # Distancias a fantasmas
+    min_active_ghost_dist = float('inf')
+    min_scared_ghost_dist = float('inf')
+    for ghost in ghost_states:
+        ghost_pos = ghost.getPosition()
+        manhattan_dist = abs(pacman_pos[0] - ghost_pos[0]) + abs(pacman_pos[1] - ghost_pos[1])
+        if ghost.scaredTimer > 0:
+            if manhattan_dist < min_scared_ghost_dist:
+                dist = mazeDistance(pacman_pos, ghost_pos, currentGameState)
+                min_scared_ghost_dist = dist
+        else:
+            if manhattan_dist < min_active_ghost_dist:
+                dist = mazeDistance(pacman_pos, ghost_pos, currentGameState)
+                min_active_ghost_dist = dist
+
+    score = currentGameState.getScore()
+
+    if min_food_dist != float('inf'):
+        score += -1.5 * min_food_dist
+    score += -4.0 * len(food_list)
+
+    if min_active_ghost_dist != float('inf'):
+        if min_active_ghost_dist > 0:
+            score += -2.0 * (1.0 / min_active_ghost_dist)
+        else:
+            score += -500.0
+
+    if min_scared_ghost_dist != float('inf'):
+        score += -2.0 * min_scared_ghost_dist
+
+    score += -20.0 * len(capsules)
+
+    return score
 
 # Abbreviation
 better = betterEvaluationFunction
