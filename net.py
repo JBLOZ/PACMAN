@@ -46,38 +46,50 @@ class PacmanDataset(Dataset):
     
     def __getitem__(self, idx):
         map_tensor = torch.FloatTensor(self.maps[idx])
-        action_tensor = torch.LongTensor([self.actions[idx]])
-        return map_tensor, action_tensor.squeeze()
+        if map_tensor.dim() == 2:
+            map_tensor = map_tensor.unsqueeze(0)
+        action_tensor = torch.tensor(self.actions[idx], dtype=torch.long)
+        return map_tensor, action_tensor
 
 class PacmanNet(nn.Module):
+    """Red neuronal convolucional para decidir acciones en Pac-Man."""
+
     def __init__(self, input_size, hidden_size, output_size):
         super(PacmanNet, self).__init__()
-        
-        # Calcular el tamaño total de entrada (aplanar la matriz)
-        self.input_features = input_size[0] * input_size[1]
-        
-        # Capas fully connected (feedforward)
-        self.fc1 = nn.Linear(self.input_features, hidden_size * 2)
-        self.fc2 = nn.Linear(hidden_size * 2, hidden_size)
-        self.fc3 = nn.Linear(hidden_size, output_size)
-        
-        # Activaciones
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(0.3)
-    
-    def forward(self, x):
-        # Input shape: (batch_size, height, width)
-        #print(f"Forma de entrada: {x.shape}")
-        # Aplanar la entrada
-        x = x.view(x.size(0), -1)  # Shape: (batch_size, height*width)
-        
+
+        channels = 1  # usamos una única matriz de entrada
+        height, width = input_size
+
+        # Capas convolucionales
+        self.conv1 = nn.Conv2d(channels, 32, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.bn = nn.BatchNorm2d(64)
+        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, padding=1)
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+
+        # Determinar tamaño de salida de las convs de forma dinámica
+        with torch.no_grad():
+            dummy = torch.zeros(1, channels, height, width)
+            conv_out = self._forward_conv(dummy).view(1, -1).size(1)
+
         # Capas fully connected
-        x = self.relu(self.fc1(x))
-        x = self.dropout(x)
-        x = self.relu(self.fc2(x))
-        x = self.dropout(x)
-        x = self.fc3(x)
-        
+        self.fc1 = nn.Linear(conv_out, hidden_size)
+        self.fc_out = nn.Linear(hidden_size, output_size)
+
+    def _forward_conv(self, x):
+        x = torch.relu(self.conv1(x))
+        x = torch.relu(self.conv2(x))
+        x = self.bn(x)
+        x = torch.relu(self.conv3(x))
+        x = self.pool(x)
+        return x
+
+    def forward(self, x):
+        # x llega con forma (batch, C=1, H, W)
+        x = self._forward_conv(x)
+        x = x.view(x.size(0), -1)
+        x = torch.relu(self.fc1(x))
+        x = self.fc_out(x)
         return x
 
 def load_and_merge_data(data_dir="pacman_data"):
@@ -118,9 +130,11 @@ def preprocess_maps(maps):
     
     # Convertir a numpy array
     processed_maps = np.array(maps).astype(np.float32)
-    
+
     # Normalizar los valores: dividir por 5 (el valor máximo) para obtener valores entre 0 y 1
     processed_maps = processed_maps / 5.0
+    # Añadir dimensión de canal
+    processed_maps = processed_maps[:, np.newaxis, :, :]
     
     print(f"Forma de los datos de entrada: {processed_maps.shape}")
     print(f"Tamaño del mapa: {height}x{width}")
