@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from collections import Counter
-
+from pacman import *
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -35,10 +35,57 @@ ACTION_TO_IDX = {
     'East': 3,
     'West': 4
 }
-
+N_HEURISTIC_FEATURES = 6
+HIDDEN_SIZE_FC = 128
+WALL_VAL = 5.0
+PACMAN_VAL = 1.0
+SCARED_GHOST_VAL = 2.0
+ACTIVE_GHOST_VAL = 6.0
+FOOD_VAL = 3.0
+CAPSULE_VAL = 4.0
+EMPTY_VAL = 0.0
+NORMALIZATION_FACTOR = 6.0
 # Mapeo de índices a acciones
 IDX_TO_ACTION = {v: k for k, v in ACTION_TO_IDX.items()}
-
+def get_map_matrix_from_gamestate(gameState: GameState, expected_dims: tuple) -> np.ndarray:
+    # ... (Implementación completa como se discutió previamente) ...
+    # Esta función es crucial si generas datos de GameState
+    gs_width = gameState.data.layout.width
+    gs_height = gameState.data.layout.height
+    matrix = np.full((gs_height, gs_width), EMPTY_VAL, dtype=np.float32)
+    for x_layout in range(gs_width):
+        for y_layout in range(gs_height):
+            y_display_coord = gs_height - 1 - y_layout
+            if gameState.hasWall(x_layout, y_layout): matrix[y_display_coord, x_layout] = WALL_VAL
+    food_grid = gameState.getFood()
+    for x_layout in range(gs_width):
+        for y_layout in range(gs_height):
+            if food_grid[x_layout][y_layout]:
+                y_display_coord = gs_height - 1 - y_layout
+                matrix[y_display_coord, x_layout] = FOOD_VAL
+    for capsule_pos in gameState.getCapsules():
+        x_layout, y_layout = capsule_pos
+        y_display_coord = gs_height - 1 - y_layout
+        matrix[y_display_coord, x_layout] = CAPSULE_VAL
+    for ghost_state in gameState.getGhostStates():
+        if ghost_state.getPosition() is not None:
+            x_layout, y_layout = int(ghost_state.getPosition()[0]), int(ghost_state.getPosition()[1])
+            if 0 <= x_layout < gs_width and 0 <= y_layout < gs_height:
+                y_display_coord = gs_height - 1 - y_layout
+                val = SCARED_GHOST_VAL if ghost_state.scaredTimer > 0 else ACTIVE_GHOST_VAL
+                matrix[y_display_coord, x_layout] = val
+    pacman_pos_layout = gameState.getPacmanPosition()
+    x_layout, y_layout = pacman_pos_layout
+    y_display_coord_pacman = gs_height - 1 - y_layout
+    matrix[y_display_coord_pacman, x_layout] = PACMAN_VAL
+    out_height, out_width = expected_dims
+    final_matrix = np.full(expected_dims, EMPTY_VAL, dtype=np.float32)
+    copy_height = min(gs_height, out_height)
+    copy_width = min(gs_width, out_width)
+    paste_y_start = 0; paste_x_start = 0
+    final_matrix[paste_y_start : paste_y_start + copy_height, paste_x_start : paste_x_start + copy_width] = \
+        matrix[0:copy_height, 0:copy_width]
+    return final_matrix / NORMALIZATION_FACTOR
 class PacmanDataset(Dataset):
     def __init__(self, maps, actions):
         self.maps = maps
@@ -117,7 +164,7 @@ class PacmanNet(nn.Module):
 
         return x
 
-def load_and_merge_data(data_dir="pacman_data"):
+def load_and_merge_data(data_dir="pacman_wining_data"):
     """Carga todos los archivos CSV de partidas y los combina en un único DataFrame"""
     all_maps = []
     all_actions = []
@@ -275,7 +322,7 @@ def main():
     start_time = time.time()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    maps_data, actions_data = load_and_merge_data(data_dir="pacman_data") # Asegúrate que esta carpeta exista y tenga datos
+    maps_data, actions_data = load_and_merge_data(data_dir="pacman_wining_data") # Asegúrate que esta carpeta exista y tenga datos
     
     # INPUT_SIZE_SHAPE se determinará aquí
     global INPUT_SIZE_SHAPE 

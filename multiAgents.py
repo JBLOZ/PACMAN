@@ -11,42 +11,26 @@
 # Student side autograding was added by Brad Miller, Nick Hay, and
 # Pieter Abbeel (pabbeel@cs.berkeley.edu).
 
+# Global seed variable for reproducibility
+
+
 import torch
 import numpy as np
-from net import PacmanNet
+
+from net import PacmanNet, get_map_matrix_from_gamestate 
+from net import IDX_TO_ACTION, HIDDEN_SIZE_FC, NUM_ACTIONS as NN_OUTPUT_ACTIONS
+
 import os
 from util import manhattanDistance
 from game import Directions
 import random, util
 from functools import partial
 import math
-random.seed(42)  # For reproducibility
+random.seed(42)  # Use the global seed variable for reproducibility
 from game import Agent
 from pacman import GameState
 
 
-def mazeDistance(point1, point2, gameState):
-    """Distancia mínima en el laberinto entre dos puntos usando BFS."""
-    from util import Queue
-    walls = gameState.getWalls()
-    if point1 == point2:
-        return 0
-    fringe = Queue()
-    visited = set()
-    fringe.push((point1, 0))
-    visited.add(point1)
-    while not fringe.isEmpty():
-        position, dist = fringe.pop()
-        x, y = position
-        neighbors = [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]
-        for nx, ny in neighbors:
-            if 0 <= nx < walls.width and 0 <= ny < walls.height and not walls[nx][ny]:
-                if (nx, ny) == point2:
-                    return dist + 1
-                if (nx, ny) not in visited:
-                    visited.add((nx, ny))
-                    fringe.push(((nx, ny), dist + 1))
-    return float('inf')
 
 class ReflexAgent(Agent):
     """
@@ -81,43 +65,7 @@ class ReflexAgent(Agent):
 
         return legalMoves[chosenIndex]
 
-    def evaluationFunction(self, currentGameState: GameState, action):
-        """
-        Design a better evaluation function here.
 
-        The evaluation function takes in the current and proposed successor
-        GameStates (pacman.py) and returns a number, where higher numbers are better.
-
-        The code below extracts some useful information from the state, like the
-        remaining food (newFood) and Pacman position after moving (newPos).
-        newScaredTimes holds the number of moves that each ghost will remain
-        scared because of Pacman having eaten a power pellet.
-
-        Print out these variables to see what you're getting, then combine them
-        to create a masterful evaluation function.
-        """
-        # Useful information you can extract from a GameState (pacman.py)
-        successorGameState = currentGameState.generatePacmanSuccessor(action)
-        newPos = successorGameState.getPacmanPosition()
-        newFood = successorGameState.getFood()
-        newGhostStates = successorGameState.getGhostStates()
-        newScaredTimes = [ghostState.scaredTimer for ghostState in newGhostStates]
-
-        "*** YOUR CODE HERE ***"
-        distToPacman = partial(manhattanDistance, newPos)
-        
-        def ghostF(ghost):
-            dist = distToPacman(ghost.getPosition())
-            if ghost.scaredTimer > dist:
-                return float('inf')
-            if dist <= 1:
-                return float('-inf')
-            return 0
-        ghostScore = min(map(ghostF, newGhostStates))
-        
-        distToClosestFood = min(map(distToPacman, newFood.asList()), default=float('inf'))
-        closestFoodFeature = 1.0 / (1.0 + distToClosestFood)
-        return successorGameState.getScore() + closestFoodFeature + ghostScore
 
 def scoreEvaluationFunction(currentGameState: GameState):
     """
@@ -151,266 +99,462 @@ class MultiAgentSearchAgent(Agent):
 
 class MinimaxAgent(MultiAgentSearchAgent):
     """
-    Minimax agent implementation for multi-agent Pacman.
-    
-    This agent uses the minimax algorithm to make optimal decisions in an adversarial
-    environment where Pacman (maximizing player) competes against multiple ghosts 
-    (minimizing players).
-    
-    Game Structure:
-    - One ply = Pacman move + all ghost moves
-    - Depth increments only when control returns to Pacman
-    - Agents take turns: Pacman (0) → Ghost1 (1) → Ghost2 (2) → ... → Pacman (depth++)
+    Your minimax agent (question 2)
     """
 
     def getAction(self, gameState: GameState):
         """
         Returns the minimax action from the current gameState using self.depth
         and self.evaluationFunction.
-        
-        The algorithm guarantees optimal play assuming all agents play optimally:
-        - Pacman maximizes the evaluation score
-        - Ghosts minimize Pacman's score
+
+        Here are some method calls that might be useful when implementing minimax.
+
+        gameState.getLegalActions(agentIndex):
+        Returns a list of legal actions for an agent
+        agentIndex=0 means Pacman, ghosts are >= 1
+
+        gameState.generateSuccessor(agentIndex, action):
+        Returns the successor game state after an agent takes an action
+
+        gameState.getNumAgents():
+        Returns the total number of agents in the game
+
+        gameState.isWin():
+        Returns whether or not the game state is a winning state
+
+        gameState.isLose():
+        Returns whether or not the game state is a losing state
         """
-        
-        def minimax(agentIndex, depth, gameState):
-            """
-            Recursive minimax function that evaluates game states.
-            
-            Args:
-                agentIndex: Current agent (0=Pacman, 1+=Ghosts)
-                depth: Current depth in the game tree
-                gameState: Current state of the game
-                
-            Returns:
-                Best evaluation score for this state
-            """
-            # Base case: terminal state or maximum depth reached
-            if gameState.isWin() or gameState.isLose() or depth == self.depth:
-                return self.evaluationFunction(gameState)
-
-            # Pacman's turn (Maximizing player)
-            if agentIndex == 0:
-                return maxValue(agentIndex, depth, gameState)
-            # Ghost's turn (Minimizing player)
-            else:
-                return minValue(agentIndex, depth, gameState)
-        
-        def maxValue(agentIndex, depth, gameState):
-            """
-            Handles Pacman's moves (maximizing player).
-            Chooses the action that leads to the highest evaluation score.
-            """
-            v = float('-inf')  # Start with worst possible value for Pacman
-            legalActions = gameState.getLegalActions(agentIndex)
-            
-            # No legal actions available - return current evaluation
-            if not legalActions:
-                return self.evaluationFunction(gameState)
-
-            # Try each possible action and choose the best
-            for action in legalActions:
-                successor = gameState.generateSuccessor(agentIndex, action)
-                # After Pacman moves, first ghost plays (agent 1)
-                v = max(v, minimax(1, depth, successor))
-            return v
-
-        def minValue(agentIndex, depth, gameState):
-            """
-            Handles Ghost moves (minimizing players).
-            Chooses the action that leads to the lowest evaluation score for Pacman.
-            """
-            v = float('inf')  # Start with best possible value for Pacman
-            legalActions = gameState.getLegalActions(agentIndex)
-            
-            # No legal actions available - return current evaluation
-            if not legalActions:
-                return self.evaluationFunction(gameState)
-
-            # Determine next agent and depth
-            nextAgent = agentIndex + 1
-            nextDepth = depth
-            
-            # If all ghosts have moved, return to Pacman and increment depth
-            if nextAgent == gameState.getNumAgents():
-                nextAgent = 0      # Back to Pacman
-                nextDepth = depth + 1  # New ply begins
-
-            # Try each possible action and choose the worst for Pacman
-            for action in legalActions:
-                successor = gameState.generateSuccessor(agentIndex, action)
-                v = min(v, minimax(nextAgent, nextDepth, successor))
-            return v
-
-        # Main decision logic for Pacman
-        bestAction = None
-        bestScore = float('-inf')
-
-        # Get all legal actions for Pacman
-        legalActions = gameState.getLegalActions(0)
-        
-        # Handle edge case: no legal actions
-        if not legalActions:
-            return Directions.STOP
-
-        # Try each legal action for Pacman and find the best
-        for action in legalActions:
-            successor = gameState.generateSuccessor(0, action)
-            # Start minimax with first ghost (agent 1) at current depth
-            score = minimax(1, 0, successor)
-            
-            # Update best action if this score is better
-            if score > bestScore:
-                bestScore = score
-                bestAction = action
-
-        return bestAction if bestAction is not None else Directions.STOP
+        "*** YOUR CODE HERE ***"
+        util.raiseNotDefined()
 
 class AlphaBetaAgent(MultiAgentSearchAgent):
     """
-    Minimax agent with alpha-beta pruning optimization.
+    Agente Minimax con poda alfa-beta mejorado con ordenación neural de movimientos.
     
-    This agent uses the alpha-beta pruning technique to optimize the minimax algorithm
-    by eliminating branches that cannot possibly influence the final decision.
+    Este agente implementa el algoritmo minimax con poda alfa-beta para búsqueda adversarial,
+    con una mejora clave: utiliza una red neuronal entrenada (PacmanNet) para ordenar los
+    movimientos de Pacman de manera inteligente. Esto mejora significativamente la eficiencia
+    de la poda alfa-beta al explorar primero los movimientos más prometedores.
     
-    Alpha-Beta Pruning maintains two values:
-    - Alpha (α): The best value the maximizer (Pacman) has found so far
-    - Beta (β): The best value the minimizer (Ghosts) has found so far
-    
-    Pruning conditions:
-    - In MAX nodes: If value ≥ β, prune remaining children
-    - In MIN nodes: If value ≤ α, prune remaining children
-    
-    This provides the exact same result as regular minimax but with significantly
-    improved computational efficiency.
+    Características principales:
+    - Implementa minimax con poda alfa-beta estándar
+    - Usa una red neuronal para predecir la calidad de los movimientos de Pacman
+    - Ordena los movimientos por probabilidad antes de explorarlos (move ordering)
+    - Mantiene compatibilidad total con el framework de multiAgents
     """
 
+    def __init__(self, evalFn='evaluationFunction', depth='2',
+                 action_nn_path="models/pacman_model_cnn_final.pth",
+                 nn_input_dims_str="20x11", device_name='cpu'):
+        """
+        Inicializa el agente AlphaBeta con capacidades de red neuronal.
+        
+        Args:
+            evalFn (str): Nombre de la función de evaluación para nodos hoja.
+                         Por defecto usa 'evaluationFunction' que está definida más abajo.
+            depth (str): Profundidad máxima de búsqueda para Pacman (número de movimientos
+                        que Pacman puede planificar hacia adelante).
+            action_nn_path (str): Ruta al archivo .pth que contiene la red neuronal entrenada.
+                                 Esta red predice qué acciones son más prometedoras.
+            nn_input_dims_str (str): Dimensiones que espera la red neuronal en formato "alto x ancho".
+                                   Debe coincidir con cómo fue entrenada la red.
+            device_name (str): Dispositivo para PyTorch ('cpu' o 'cuda').
+        
+        La inicialización hace tres cosas principales:
+        1. Configura el agente multiagente básico (función de evaluación y profundidad)
+        2. Carga y prepara la red neuronal para ordenar movimientos
+        3. Establece el mapeo entre índices de la red y acciones del juego
+        """
+       
+        # Llamar al constructor padre para configurar self.evaluationFunction y self.depth
+        super().__init__(evalFn, depth)
+        
+        # Configuración del dispositivo PyTorch (CPU vs GPU)
+        self.device = torch.device(device_name)
+        
+        # Parsear las dimensiones de entrada de la red neuronal
+        # Ejemplo: "20x11" -> (20, 11) que representa (alto, ancho) del mapa
+        dims = tuple(map(int, nn_input_dims_str.split('x')))
+        self.nn_input_dims = dims
+        
+        # Mapeo de índices de la red neuronal a acciones del juego
+        # IDX_TO_ACTION mapea 0->North, 1->South, etc.
+        self.idx_to_action_map = IDX_TO_ACTION 
+
+        # Cargar la red neuronal entrenada
+        # Esta red toma el estado del juego como matriz y predice probabilidades para cada acción
+        self.action_predictor_nn = PacmanNet(self.nn_input_dims, HIDDEN_SIZE_FC, NN_OUTPUT_ACTIONS).to(self.device)
+        model_data = torch.load(action_nn_path, map_location=self.device)
+        self.action_predictor_nn.load_state_dict(model_data['model_state_dict'])
+        self.action_predictor_nn.eval()  # Modo evaluación (sin entrenamiento)
+
+    def _get_ordered_pacman_actions(self, gameState, legalActions):
+        """
+        Ordena las acciones legales de Pacman usando predicciones de la red neuronal.
+        
+        Esta es la función clave que diferencia nuestro agente de un alpha-beta estándar.
+        La ordenación de movimientos (move ordering) es crucial para la eficiencia de alpha-beta:
+        si exploramos primero los mejores movimientos, obtendremos podas más tempranas y
+        reduciremos drásticamente el número de nodos explorados.
+        
+        Args:
+            gameState: Estado actual del juego de Pacman
+            legalActions: Lista de acciones legales disponibles para Pacman
+            
+        Returns:
+            list: Acciones ordenadas de mejor a peor según la red neuronal.
+                 Si hay algún error con la red, devuelve las acciones originales.
+                 
+        Proceso paso a paso:
+        1. Convierte el estado del juego a una matriz numérica que entiende la red
+        2. Ejecuta la red neuronal para obtener probabilidades de cada acción
+        3. Mapea estas probabilidades a las acciones legales específicas
+        4. Ordena las acciones por probabilidad descendente (mejor primero)
+        """
+
+        try:
+            # Paso 1: Convertir el estado del juego a matriz numérica
+            # get_map_matrix_from_gamestate convierte paredes, comida, fantasmas, etc.
+            # en una representación numérica que puede procesar la red neuronal
+            map_matrix = get_map_matrix_from_gamestate(gameState, self.nn_input_dims)
+            
+            # Paso 2: Preparar tensor para PyTorch
+            # La red espera formato (batch, channels, height, width) o (batch, height, width)
+            map_tensor = torch.FloatTensor(map_matrix).to(self.device)
+            if len(map_tensor.shape) == 2:  # Si es (height, width)
+                map_tensor = map_tensor.unsqueeze(0)  # Añadir dimensión batch -> (1, height, width)
+
+            # Paso 3: Ejecutar la red neuronal sin calcular gradientes
+            with torch.no_grad():
+                # La red devuelve logits (puntuaciones brutas) para cada acción posible
+                action_logits = self.action_predictor_nn(map_tensor).squeeze() 
+
+            # Paso 4: Mapear las predicciones de la red a acciones del juego
+            action_scores = {}
+            
+            
+            for i in range(NN_OUTPUT_ACTIONS):
+                # Convertir índice numérico a nombre de acción (ej: 0 -> 'North')
+                action_name_from_nn = self.idx_to_action_map.get(i)
+                if action_name_from_nn:
+                    # Guardar la puntuación que la red asignó a esta acción
+                    action_scores[action_name_from_nn] = action_logits[i].item()
+            
+
+            # Paso 5: Ordenar acciones legales por puntuación de la red (mejor primero)
+            sorted_legal_actions = sorted(legalActions,
+                                          key=lambda action: action_scores.get(action, -float('inf')),
+                                          reverse=True)  # Mayor score primero
+            return sorted_legal_actions
+            
+        except Exception as e:
+            # Manejo robusto de errores: si algo falla, usar orden original
+            print(f"Error (AlphaBetaAgent) durante la ordenación de movimientos con NN: {e}. Usando orden por defecto.")
+            return legalActions
+        
     def getAction(self, gameState: GameState):
         """
-        Returns the alpha-beta action using self.depth and self.evaluationFunction.
+        Método principal que implementa el algoritmo minimax con poda alfa-beta.
         
-        The algorithm explores the game tree with alpha-beta bounds to prune
-        branches that cannot affect the optimal decision.
+        Este método coordina toda la búsqueda adversarial. La estructura sigue el
+        patrón estándar de minimax para juegos con múltiples agentes:
+        - Pacman (agente 0) es el maximizador
+        - Los fantasmas (agentes 1, 2, ...) son minimizadores
+        - La búsqueda alterna entre estos agentes hasta alcanzar la profundidad máxima
+        
+        Mejoras implementadas:
+        1. Poda alfa-beta para reducir el espacio de búsqueda
+        2. Ordenación neural de movimientos para Pacman (mejora la eficiencia de la poda)
+        3. Manejo robusto de casos límite y estados terminales
+        
+        Returns:
+            str: La mejor acción encontrada (ej: 'North', 'South', etc.)
         """
         
-        def alphabeta(agentIndex, depth, gameState, alpha, beta):
+        # =================== FUNCIONES INTERNAS DE BÚSQUEDA ===================
+        # Estas funciones implementan la lógica recursiva del algoritmo minimax
+        
+        def perform_alphabeta_search(agentIndex, current_search_depth, current_gameState, alpha, beta):
             """
-            Core alpha-beta search function.
+            Función recursiva principal que implementa minimax con poda alfa-beta.
             
             Args:
-                agentIndex: Current agent (0=Pacman, 1+=Ghosts)
-                depth: Current search depth
-                gameState: Current game state
-                alpha: Best value for maximizer so far
-                beta: Best value for minimizer so far
-            
+                agentIndex (int): Qué agente está jugando (0=Pacman, 1+=fantasmas)
+                current_search_depth (int): Profundidad actual de búsqueda para Pacman
+                current_gameState: Estado actual del juego
+                alpha (float): Mejor valor encontrado para el maximizador
+                beta (float): Mejor valor encontrado para el minimizador
+                
             Returns:
-                Best evaluation score for the current state
-            """
-            # Base case: Terminal state or maximum depth reached
-            if gameState.isWin() or gameState.isLose() or depth == self.depth:
-                return self.evaluationFunction(gameState)
-
-            # Dispatch to appropriate player function
-            if agentIndex == 0:
-                return maxValue(agentIndex, depth, gameState, alpha, beta)
-            else:
-                return minValue(agentIndex, depth, gameState, alpha, beta)
-
-        def maxValue(agentIndex, depth, gameState, alpha, beta):
-            """
-            Handles Pacman's moves (maximizing player) with alpha-beta pruning.
-            
-            Tries to maximize the evaluation score while updating alpha
-            and pruning when value ≥ beta.
-            """
-            v = float('-inf')  # Start with worst possible value for maximizer
-            legalActions = gameState.getLegalActions(agentIndex)
-
-            # No legal actions available - return current evaluation
-            if not legalActions:
-                return self.evaluationFunction(gameState)
-
-            # Try each possible action
-            for action in legalActions:
-                successor = gameState.generateSuccessor(agentIndex, action)
-                # After Pacman moves, first ghost plays (agent 1)
-                v = max(v, alphabeta(1, depth, successor, alpha, beta))
+                float: Valor de utilidad del estado evaluado
                 
-                # Alpha-beta pruning: if v ≥ β, remaining actions won't be chosen by minimizer
+            Lógica de profundidad:
+            - current_search_depth cuenta solo los movimientos de Pacman
+            - Cuando current_search_depth == self.depth, Pacman ha planificado suficiente
+            - Los fantasmas no incrementan la profundidad, solo Pacman
+            """
+            # Caso base 1: Estados terminales (victoria/derrota)
+            if current_gameState.isWin() or current_gameState.isLose():
+                return self.evaluationFunction(current_gameState)
+            
+            if agentIndex == 0:  # Turno de Pacman (Maximizador)
+                # Caso base 2: Pacman ha alcanzado su profundidad máxima de planificación
+                if current_search_depth == self.depth:
+                     return self.evaluationFunction(current_gameState)
+                return get_max_value(agentIndex, current_search_depth, current_gameState, alpha, beta)
+            else:  # Turno de un Fantasma (Minimizador)
+                return get_min_value(agentIndex, current_search_depth, current_gameState, alpha, beta)
+
+        def get_max_value(agentIndex, current_search_depth, current_gameState, alpha, beta):
+            """
+            Implementa la lógica de maximización para Pacman.
+            
+            Esta función busca el movimiento que maximiza la utilidad para Pacman.
+            Aquí es donde aplicamos la ordenación neural de movimientos para mejorar
+            la eficiencia de la poda alfa-beta.
+            
+            Args:
+                agentIndex (int): Debe ser 0 (Pacman)
+                current_search_depth (int): Profundidad actual
+                current_gameState: Estado del juego
+                alpha, beta (float): Ventanas de poda alfa-beta
+                
+            Returns:
+                float: Máximo valor de utilidad encontrado
+            """
+            v = float('-inf')  # Inicializar con el peor valor posible
+            legalActions = current_gameState.getLegalActions(agentIndex)
+
+            # Caso especial: si no hay acciones legales, evaluar estado actual
+            if not legalActions:
+                return self.evaluationFunction(current_gameState)
+
+            # *** APLICACIÓN DE ORDENACIÓN NEURAL ***
+            # Esta es la mejora clave: ordenar los movimientos por probabilidad neural
+            # antes de explorarlos. Esto mejora dramáticamente la eficiencia de alpha-beta.
+            ordered_actions = self._get_ordered_pacman_actions(current_gameState, legalActions)
+
+            # Explorar cada acción en el orden optimizado
+            for action in ordered_actions:
+                successor = current_gameState.generateSuccessor(agentIndex, action)
+                
+                # Después de que Pacman se mueve, le toca al primer fantasma (agente 1)
+                # La profundidad no se incrementa aquí porque Pacman aún no ha completado su "turno"
+                v = max(v, perform_alphabeta_search(1, current_search_depth, successor, alpha, beta))
+                
+                # *** PODA ALFA-BETA ***
                 if v > beta:
-                    return v  # Prune remaining branches
-                
-                # Update alpha with best value found so far
-                alpha = max(alpha, v)
-            
+                    return v  # Poda beta: el minimizador nunca eligirá esta rama
+                alpha = max(alpha, v)  # Actualizar la mejor opción del maximizador
             return v
 
-        def minValue(agentIndex, depth, gameState, alpha, beta):
+        def get_min_value(agentIndex, current_search_depth, current_gameState, alpha, beta):
             """
-            Handles Ghost moves (minimizing players) with alpha-beta pruning.
+            Implementa la lógica de minimización para los fantasmas.
             
-            Tries to minimize Pacman's score while updating beta
-            and pruning when value ≤ alpha.
+            Los fantasmas intentan minimizar la utilidad de Pacman. Esta función
+            maneja la rotación entre múltiples fantasmas y el retorno a Pacman.
+            
+            Args:
+                agentIndex (int): Índice del fantasma actual (>=1)
+                current_search_depth (int): Profundidad actual
+                current_gameState: Estado del juego
+                alpha, beta (float): Ventanas de poda alfa-beta
+                
+            Returns:
+                float: Mínimo valor de utilidad encontrado
             """
-            v = float('inf')  # Start with best possible value for maximizer
-            legalActions = gameState.getLegalActions(agentIndex)
+            v = float('inf')  # Inicializar con el peor valor posible para el minimizador
+            legalActions = current_gameState.getLegalActions(agentIndex)
 
-            # No legal actions available - return current evaluation
             if not legalActions:
-                return self.evaluationFunction(gameState)
+                return self.evaluationFunction(current_gameState)
 
-            # Determine next agent and depth
+            # Determinar qué agente juega después
             nextAgent = agentIndex + 1
-            nextDepth = depth
-            
-            # If all ghosts have moved, return to Pacman and increment depth
-            if nextAgent == gameState.getNumAgents():
-                nextAgent = 0      # Back to Pacman
-                nextDepth = depth + 1  # New ply begins
+            next_search_depth_for_pacman = current_search_depth 
 
-            # Try each possible action
-            for action in legalActions:
-                successor = gameState.generateSuccessor(agentIndex, action)
-                v = min(v, alphabeta(nextAgent, nextDepth, successor, alpha, beta))
-                
-                # Alpha-beta pruning: if v ≤ α, remaining actions won't be chosen by maximizer
-                if v < alpha:
-                    return v  # Prune remaining branches
-                
-                # Update beta with worst value found so far (from maximizer's perspective)
-                beta = min(beta, v)
+            # Si todos los fantasmas se han movido, vuelve a Pacman
+            if nextAgent == current_gameState.getNumAgents():
+                nextAgent = 0  # Volver a Pacman
+                next_search_depth_for_pacman = current_search_depth + 1  # Incrementar profundidad de Pacman
             
+            # Explorar cada acción del fantasma
+            for action in legalActions:
+                successor = current_gameState.generateSuccessor(agentIndex, action)
+                v = min(v, perform_alphabeta_search(nextAgent, next_search_depth_for_pacman, successor, alpha, beta))
+                
+                # *** PODA ALFA-BETA ***
+                if v < alpha:
+                    return v  # Poda alfa: el maximizador nunca eligirá esta rama
+                beta = min(beta, v)  # Actualizar la mejor opción del minimizador
             return v
 
-        # Choose the best action for Pacman at the root level
+        # =================== LÓGICA PRINCIPAL DE DECISIÓN ===================
+        
+        # Variables para rastrear la mejor acción encontrada
         bestAction = None
         bestScore = float('-inf')
-        alpha = float('-inf')
-        beta = float('inf')
+        alpha_root = float('-inf')  # Ventana alfa para el nodo raíz
+        beta_root = float('inf')    # Ventana beta para el nodo raíz
 
-        # Try each possible action for Pacman
-        for action in gameState.getLegalActions(0):
+        # Obtener acciones legales para Pacman en el estado actual
+        pacman_legal_actions = gameState.getLegalActions(0)
+        
+        # *** APLICAR ORDENACIÓN NEURAL AL NIVEL RAÍZ ***
+        # Esto es crucial: ordenar las acciones iniciales de Pacman por probabilidad
+        # para explorar primero las más prometedoras
+        ordered_initial_actions = self._get_ordered_pacman_actions(gameState, pacman_legal_actions)
+
+        # Evaluar cada acción posible de Pacman
+        for action in ordered_initial_actions:
+            # Generar el estado resultante de esta acción
             successor = gameState.generateSuccessor(0, action)
-            # Start alpha-beta search with first ghost (agent 1)
-            score = alphabeta(1, 0, successor, alpha, beta)
             
-            # Update best action if this score is better
+            # Iniciar la búsqueda minimax desde el primer fantasma (agente 1)
+            # La profundidad inicial es 0 porque Pacman aún no ha completado su primer "nivel"
+            score = perform_alphabeta_search(1, 0, successor, alpha_root, beta_root)
+            
+            # Rastrear la mejor acción encontrada hasta ahora
             if score > bestScore:
                 bestScore = score
                 bestAction = action
             
-            # Update alpha for future iterations
-            alpha = max(alpha, score)
-
+            # Actualizar alfa para mejorar las podas futuras
+            alpha_root = max(alpha_root, score)        # Retornar la mejor acción, o STOP como último recurso
         return bestAction if bestAction is not None else Directions.STOP
 
-        
-#############################################
-# ExpectimaxAgent (q4) y mejor heurística (q5)
-#############################################
+    """
+    =================== RESUMEN DEL ALGORITMO ===================
+    Flujo de ejecución:
+    1. Obtener acciones legales de Pacman
+    2. Ordenar estas acciones usando la red neuronal
+    3. Para cada acción (en orden de calidad):
+       a. Generar estado sucesor
+       b. Iniciar búsqueda minimax desde los fantasmas
+       c. Aplicar poda alfa-beta para eficiencia
+    4. Retornar la acción con mejor evaluación
+    """
 
-################ Expectimax mejorado ################
+def evaluationFunction(currentGameState: GameState):
+    """
+    Función de evaluación de AlphaBeta Pacman.
+    
+    Esta función evalúa qué tan "bueno" es un estado de juego para Pacman,
+    considerando múltiples factores críticos que influyen en el éxito:
+    - Puntuación actual del juego
+    - Proximidad a la comida
+    - Proximidad y estado de los fantasmas
+    
+    La función utiliza un enfoque de suma ponderada donde cada factor contribuye
+    al puntaje final según su importancia estratégica.
+    
+    Returns:
+        float: Puntaje de evaluación del estado. Valores más altos indican
+               estados más favorables para Pacman.
+    """
+    
+    # =================== EXTRACCIÓN DE INFORMACIÓN DEL ESTADO ===================
+    # Obtener los elementos clave del estado actual del juego
+    newPos = currentGameState.getPacmanPosition()      # Posición actual de Pacman (x, y)
+    newFood = currentGameState.getFood()               # Grid booleano con posiciones de comida
+    newGhostStates = currentGameState.getGhostStates() # Lista de estados de todos los fantasmas
+
+    # =================== DEFINICIÓN DE PESOS ESTRATÉGICOS ===================
+    # Estos pesos determinan la importancia relativa de cada factor en la evaluación.
+    # Han sido ajustados experimentalmente para obtener el mejor comportamiento.
+    
+    WEIGHT_FOOD = 12.0          # Peso para proximidad a comida
+                                # Valor positivo: queremos estar cerca de la comida
+                                # Moderado: importante pero no crítico
+    
+    WEIGHT_GHOST = -30.0        # Peso para proximidad a fantasmas normales  
+                                # Valor negativo: queremos evitar fantasmas peligrosos
+                                # Igual magnitud que comida: equilibra ataque/defensa
+    
+    WEIGHT_SCARED_GHOST = 150.0 # Peso para proximidad a fantasmas asustados
+                                # Valor muy alto: cazar fantasmas asustados da muchos puntos
+                                # 10x mayor que comida: prioriza oportunidades de caza
+
+    # =================== EVALUACIÓN BASE: PUNTUACIÓN DEL JUEGO ===================
+    # Comenzamos con la puntuación oficial del juego, multiplicada por 5 para darle peso
+    # La puntuación incluye: comida consumida, fantasmas cazados, bonificaciones de tiempo
+    score = currentGameState.getScore() * 5
+    # Razón del multiplicador x5: 
+    # - Multiplicar por 5 asegura que la puntuación base tenga influencia significativa
+
+    # =================== EVALUACIÓN DE PROXIMIDAD A LA COMIDA ===================
+    # Estrategia: Incentivar a Pacman a acercarse a la comida más cercana
+    # Usamos distancia manhattan porque Pacman se mueve en rejilla (no diagonal)
+    
+    distancesToFoodList = [util.manhattanDistance(newPos, foodPos) for foodPos in newFood.asList()]
+    
+    if len(distancesToFoodList) > 0:
+        # Hay comida disponible: usar distancia inversa para priorizar comida cercana
+        # Formula: PESO / distancia_mínima
+        # - Distancia 1: +10 puntos (muy bueno, comida al lado)
+        # - Distancia 5: +2 puntos (moderado, comida a distancia media)
+        # - Distancia 10: +1 punto (poco atractivo, comida lejana)
+        score += WEIGHT_FOOD / min(distancesToFoodList)
+    else:
+        # No hay comida restante: bonificación completa (probablemente estado de victoria)
+        # En este caso, hemos comido toda la comida, lo cual es excelente
+        score += WEIGHT_FOOD
+
+    # =================== EVALUACIÓN DE PROXIMIDAD A FANTASMAS ===================
+    # Estrategia dual: evitar fantasmas peligrosos, perseguir fantasmas asustados
+    # Esta es la parte más compleja porque debe manejar dos comportamientos opuestos
+    
+    for ghost in newGhostStates:
+        # Calcular distancia a este fantasma específico
+        distance = manhattanDistance(newPos, ghost.getPosition())
+        
+        if distance > 0:
+            # Pacman no está exactamente en la misma posición que el fantasma
+            
+            if ghost.scaredTimer > 0:  
+                # FANTASMA ASUSTADO: Es una oportunidad de oro
+                # Los fantasmas asustados pueden ser cazados para obtener puntos altos
+                # Formula: PESO_DEL_FANTASMA / distancia
+                # - Distancia 1: +100 puntos (perseguir inmediatamente)
+                # - Distancia 2: +50 puntos (sigue siendo muy buena opcion perseguirlo)
+                # - Distancia 5: +20 puntos (vale la pena perseguir pero puede haber mejores decisiones)
+                score += WEIGHT_SCARED_GHOST / distance
+                
+                # Razón del peso alto (100):
+                # - Cazar un fantasma da 200 puntos en el juego real
+                # - Es una oportunidad temporal (scaredTimer se agota)
+                # - Debe priorizarse sobre comer comida normal
+                
+            else:  
+                # FANTASMA NORMAL: Es una amenaza mortal
+                # Tocar un fantasma normal termina el juego inmediatamente
+                # Formula: PESO_NEGATIVO / distancia
+                # - Distancia 1: -10 puntos (¡muy peligroso!)
+                # - Distancia 2: -5 puntos (peligroso)
+                # - Distancia 5: -2 puntos (precaución moderada)
+                score += WEIGHT_GHOST / distance
+                
+                # Razón del peso negativo (-10):
+                # - Equilibra con la atracción de la comida (+10)
+                # - Evita que Pacman se acerque temerariamente a fantasmas
+                # - Permite cierto riesgo calculado cuando la recompensa es alta
+                
+        else:
+            # COLISIÓN DETECTADA: Pacman está exactamente en la posición del fantasma
+            # Esto solo puede pasar con un fantasma normal (los asustados serían cazados)
+            # Retornamos inmediatamente el peor puntaje posible: muerte segura
+            return -float('inf')  
+            # Razón del -infinito:
+            # - Muerte de Pacman es el peor resultado posible
+            # - Debe evitarse a toda costa, sin importar otros factores
+            # - Garantiza que ningún camino que lleve a muerte sea elegido
+
+    # =================== RETORNO DEL PUNTAJE FINAL ===================
+    # El puntaje final es la suma de todos los factores considerados:
+    # = puntuación_base + factor_comida + suma_factores_fantasmas
+    return score
 
 class ExpectimaxAgent(MultiAgentSearchAgent):
     """
@@ -425,51 +569,7 @@ class ExpectimaxAgent(MultiAgentSearchAgent):
         legal moves.
         """
         "*** YOUR CODE HERE ***"
-        # util.raiseNotDefined()
-        maxValue = -1e9
-        maxAction = Directions.STOP
-
-        for action in gameState.getLegalActions(0):
-            sucState = gameState.generateSuccessor(0, action)
-            sucValue = self.getNodeValue(sucState, 0, 1)
-            if sucValue > maxValue:
-                maxValue, maxAction = sucValue, action
-
-        return maxAction
-
-    def getNodeValue(self, gameState, curDepth, agentIndex):
-        if curDepth == self.depth or gameState.isWin() or gameState.isLose():
-            return self.evaluationFunction(gameState)
-
-        if agentIndex == 0:
-            return self.maxValue(gameState, curDepth)
-        else:
-            return self.expValue(gameState, curDepth, agentIndex)
-
-    def maxValue(self, gameState, curDepth):
-        maxValue = -1e9
-        for action in gameState.getLegalActions(0):
-            sucState = gameState.generateSuccessor(0, action)
-            sucValue = self.getNodeValue(sucState, curDepth, 1)
-            maxValue = max(maxValue, sucValue)
-        return maxValue
-
-    def expValue(self, gameState, curDepth, agentIndex):
-        totalValue = 0.0
-        numAgent = gameState.getNumAgents()
-        for action in gameState.getLegalActions(agentIndex):
-            sucState = gameState.generateSuccessor(agentIndex, action)
-            if agentIndex == numAgent - 1:
-                sucValue = self.getNodeValue(sucState, curDepth + 1, 0)
-            else:
-                sucValue = self.getNodeValue(sucState, curDepth, agentIndex + 1)
-            totalValue += sucValue
-
-        numAction = len(gameState.getLegalActions(agentIndex))
-        return totalValue / numAction
-
-
-############# Heurística: betterEvaluationFunction #############
+        util.raiseNotDefined()
 
 def betterEvaluationFunction(currentGameState: GameState):
     """
@@ -479,43 +579,10 @@ def betterEvaluationFunction(currentGameState: GameState):
     DESCRIPTION: <write something here so we know what you did>
     """
     "*** YOUR CODE HERE ***"
-    # util.raiseNotDefined()
-    newPos = currentGameState.getPacmanPosition()
-    newFood = currentGameState.getFood()
-    newGhostStates = currentGameState.getGhostStates()
+    util.raiseNotDefined()
 
-    # Consts
-    INF = 100000000.0  # Infinite value
-    WEIGHT_FOOD = 10.0  # Food base value
-    WEIGHT_GHOST = -10.0  # Ghost base value
-    WEIGHT_SCARED_GHOST = 100.0  # Scared ghost base value
-
-    # Base on gameState.getScore()
-    score = currentGameState.getScore()
-
-    # Evaluate the distance to the closest food
-    distancesToFoodList = [util.manhattanDistance(newPos, foodPos) for foodPos in newFood.asList()]
-    if len(distancesToFoodList) > 0:
-        score += WEIGHT_FOOD / min(distancesToFoodList)
-    else:
-        score += WEIGHT_FOOD
-
-    # Evaluate the distance to ghosts
-    for ghost in newGhostStates:
-        distance = manhattanDistance(newPos, ghost.getPosition())
-        if distance > 0:
-            if ghost.scaredTimer > 0:  # If scared, add points
-                score += WEIGHT_SCARED_GHOST / distance
-            else:  # If not, decrease points
-                score += WEIGHT_GHOST / distance
-        else:
-            return -INF  # Pacman is dead at this point
-
-    return score
-
-# Alias para autograder
+# Abbreviation
 better = betterEvaluationFunction
-
 
         
 
